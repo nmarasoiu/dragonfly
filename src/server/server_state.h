@@ -116,6 +116,10 @@ class ServerState {  // public struct - to allow initialization.
     uint64_t tx_inline_runs = 0;
     uint64_t tx_schedule_cancel_cnt = 0;
 
+    // Hop batching (--experimental_hop_batching): shard queue tasks sent and hops they carried.
+    uint64_t hop_batches_sent = 0;
+    uint64_t hop_batched_tasks = 0;
+
     uint64_t eval_io_coordination_cnt = 0;
     uint64_t eval_shardlocal_coordination_cnt = 0;
     uint64_t eval_squashed_flushes = 0;
