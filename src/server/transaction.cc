@@ -17,6 +17,7 @@
 #include "server/command_registry.h"
 #include "server/db_slice.h"
 #include "server/engine_shard_set.h"
+#include "server/hop_batcher.h"
 #include "server/journal/journal.h"
 #include "server/memory_scope.h"
 #include "server/namespaces.h"
@@ -38,6 +39,16 @@ namespace {
 
 // Global txid sequence
 atomic_uint64_t op_seq{1};
+
+// Dispatches a hop callback to the shard queue, batching it with other hops from this thread
+// if hop batching is enabled.
+template <typename F> void DispatchToShard(ShardId sid, F&& f) {
+  if (HopBatcher* batcher = HopBatcher::tlocal(); batcher) {
+    batcher->Stage(sid, std::forward<F>(f));
+  } else {
+    shard_set->Add(sid, std::forward<F>(f));
+  }
+}
 
 constexpr size_t kTransSize [[maybe_unused]] = sizeof(Transaction);
 
@@ -814,9 +825,9 @@ void Transaction::ScheduleInternal() {
     };
 
     if (unique_shard_cnt_ == 1) {
-      shard_set->Add(unique_shard_id_, cb);
+      DispatchToShard(unique_shard_id_, cb);
     } else {
-      IterateActiveShards([cb](const auto& sd, ShardId i) { shard_set->Add(i, cb); });
+      IterateActiveShards([cb](const auto& sd, ShardId i) { DispatchToShard(i, cb); });
 
       // Add this debugging function to print more information when we experience deadlock
       // during tests.
@@ -957,7 +968,7 @@ void Transaction::SingleHopAsync(RunnableType cb) {
     if (CanRunInlined())
       shard_cb();
     else
-      shard_set->Add(unique_shard_id_, shard_cb);
+      DispatchToShard(unique_shard_id_, shard_cb);
   } else {
     ScheduleInternal();
     DispatchHop();  // won't wait on run_barrier_
@@ -1044,7 +1055,7 @@ void Transaction::DispatchHop() {
   };
   IterateShards([&poll_cb, &poll_flags](PerShardData& sd, auto i) {
     if (poll_flags.test(i))
-      shard_set->Add(i, poll_cb);
+      DispatchToShard(i, poll_cb);
   });
 }
 

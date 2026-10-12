@@ -53,6 +53,7 @@ extern "C" {
 #include "server/dflycmd.h"
 #include "server/error.h"
 #include "server/generic_family.h"
+#include "server/hop_batcher.h"
 #include "server/hset_family.h"
 #include "server/http_api.h"
 #include "server/multi_command_squasher.h"
@@ -84,6 +85,9 @@ ABSL_FLAG(uint16_t, announce_port, 0,
 ABSL_FLAG(uint32_t, memcached_port, 0, "Memcached port");
 
 ABSL_FLAG(uint32_t, num_shards, 0, "Number of database shards, 0 - to choose automatically");
+ABSL_FLAG(bool, experimental_hop_batching, false,
+          "If true, transaction hops sent from a thread to the same shard during one scheduler "
+          "round are batched into a single shard queue task.");
 
 ABSL_FLAG(bool, multi_exec_squash, true,
           "Whether multi exec will squash single shard commands to optimize performance");
@@ -1141,6 +1145,12 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
   pp_.AwaitFiberOnAll(
       [&](uint32_t index, ProactorBase* pb) { sharding::InitThreadLocals(shard_set->size()); });
 
+  if (GetFlag(FLAGS_experimental_hop_batching)) {
+    pp_.AwaitFiberOnAll([&](uint32_t index, ProactorBase* pb) {
+      HopBatcher::StartThreadLocal(shard_set->size());
+    });
+  }
+
   shard_set->pool()->AwaitBrief([](unsigned, auto*) {
     facade::Connection::InitThreadLocal();
     facade::Connection::UpdateFromFlags();
@@ -1173,6 +1183,9 @@ void Service::Shutdown() {
   server_family_.Shutdown();
 
   engine_varz.reset();
+
+  // Sends the remaining batched hops before the shard queues shut down.
+  pp_.AwaitFiberOnAll([](ProactorBase* pb) { HopBatcher::StopThreadLocal(); });
 
   uint64_t shard_shutdown_start = absl::GetCurrentTimeNanos();
   shard_set->PreShutdown();

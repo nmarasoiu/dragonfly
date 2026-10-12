@@ -3050,6 +3050,8 @@ string ServerFamily::FormatInfoMetrics(
     append("tx_normal_total", m.coordinator_stats.tx_normal_cnt);
     append("tx_inline_runs_total", m.coordinator_stats.tx_inline_runs);
     append("tx_schedule_cancel_total", m.coordinator_stats.tx_schedule_cancel_cnt);
+    append("tx_hop_batches_total", m.coordinator_stats.hop_batches_sent);
+    append("tx_hop_batched_tasks_total", m.coordinator_stats.hop_batched_tasks);
     append("tx_with_freq", absl::StrJoin(m.coordinator_stats.tx_width_freq_arr, ","));
     append("squash_with_freq", absl::StrJoin(m.coordinator_stats.squash_width_freq_arr, ","));
     append("tx_queue_len", m.tx_queue_len);
