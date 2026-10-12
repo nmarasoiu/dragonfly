@@ -56,7 +56,7 @@ void HopBatcher::Stage(ShardId sid, Task f) {
   DCHECK_LT(sid, dests_.size());
 
   if (stopping_) {
-    shard_set->Add(sid, std::move(f));
+    shard_set->Add(sid, [f = std::move(f)]() mutable { f(); });
     return;
   }
 
